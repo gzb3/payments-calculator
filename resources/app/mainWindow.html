@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+    <title>Payments</title>
+    <link rel="stylesheet" type="text/css" href="mainWindow.css" media="screen" />
+    <style>
+    </style>
+</head>
+
+    <body>
+    <div class="container">
+        <div>
+            <button id="manageBoosters">Manage boosters</button>
+            <div id="boostersDiv">
+                <ul id="boosterList">
+                </ul>
+            </div>
+        </div>
+        <div class="tables-container">
+            <div class="left-div">
+                <div>
+                    <input type="text" id="searchIdInput" placeholder="filter by id...">
+                    <input type="text" id="searchTypeInput" placeholder="filter by type...">
+                </div>
+
+                <div class="tableWrapper">
+                    <table cellpadding="5" id="service_types">
+                        <tr>
+                            <th>options</th>
+                            <th>service_id</th>
+                            <th>type</th>
+                            <th>booster%</th>
+                            <th>price</th>
+                            <th>booster name</th>
+                            <th>+</th>
+                        </tr>
+
+                        <tr>
+                            <td></td>
+                            <td><input type="text" id="createId" class="new-type-input"></td>
+                            <td><input type="text" id="createType" class="new-type-input"></td>
+                            <td><input type="text" id="createPercent" class="new-type-input"></td>
+                            <td><input type="text" id="createPrice" class="new-type-input"></td>
+                            <td></td>
+                            <td><button id="createButton">Create</button></td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+            <div class="servicesDiv">
+                <div>
+                    <input type="text" id="searchInput" placeholder="filter by name...">
+                </div>
+
+                <div class="tableWrapper">
+                    <table cellpadding="5" id="services">
+                        <tr>
+                            <th>service_id</th>
+                            <th>booster name</th>
+                            <th>booster cut</th>
+                            <th>-</th>
+                        </tr>
+                    </table>
+                </div>
+                <div class="sumDiv">
+                    <button type="button" id="sumButton">Calculate</button>
+                    <label id="result"></label>
+                </div>
+            </div>
+        </div>
+    </div>
+    <button type="button" id="clearButton">Clear table</button>
+
+    <script>
+        var $ = require("jquery");
+        window.indexedDB = window.indexedDB || window.mozIndexedDB || window.webkitIndexedDB || window.msIndexedDB;
+        window.IDBTransaction = window.IDBTransaction || window.webkitIDBTransaction || window.msIDBTransaction;
+        window.IDBKeyRange = window.IDBKeyRange || window.webkitIDBKeyRange || window.msIDBKeyRange;
+        var db;
+        var request = window.indexedDB.open("newDatabase", 1);
+        const table=document.querySelector('#service_types');
+        var editing=false;
+        var editingValues=[];
+        let boosters=['--'];
+        request.onsuccess = function(event) {
+            db = request.result;
+            fetchBoosters(function (res) {
+                res.forEach(b=>{
+                    $('#boosterList').append('<li><div><button class="rmvBoosterBtn"><img class="rmvBI" src="remove2.png"></button><span class="name">'+b['booster']+'</span></div></li>');
+                    boosters.push(b['booster']);
+                });
+                $('#boostersDiv').append('<div><input type="text" id="newBoosterInput" placeholder="add new booster"><button id="addBoosterBtn"><img src="add.png"></button></div>');
+                addBoosterButtonListener();
+            });
+            populateLeftTable(boosters);
+        };
+        request.onupgradeneeded=function(event){
+            var db =event.target.result;
+            var os_st=db.createObjectStore("service_types",{keyPath:"id"});
+            var os_b=db.createObjectStore("boosters",{keyPath:"booster"});
+        };
+
+        sumButton();
+        filterByBoosterListener();
+        clearListener();
+        removeButtonListener();
+        removeServiceTypeButtonListener();
+        filterByIdListener();
+        filterByTypeListener();
+        editButtonListener();
+        cancelButtonListener();
+        createNewTypeButtonListener();
+        saveButtonListener();
+        deleteBoosterBtnListener();
+        manageBoostersListener();
+
+        function deleteBoosterBtnListener(){
+            $(document).ready(function(){
+                $("#boostersDiv").on('click','button.rmvBoosterBtn',function () {
+                    let name=$(this).parent().find(".name").text();
+                     if(confirm("Delete booster?")) {
+                         deleteBooster(name, function (res) {
+                                 $('li:contains(' + res + ')').remove();
+                                 $('option:contains(' + res + ')').remove();
+                                 let index = boosters.indexOf(res);
+                                 if (index > -1) boosters.splice(index, 1);
+                         })
+                     }
+
+                })
+            });
+        }
+        function deleteBooster(name,callb){
+            let request=db.transaction(['boosters'],"readwrite")
+                .objectStore("boosters")
+                .delete(name);
+            request.onsuccess=function (event) {
+                if(!event.error) callb(name);
+            };
+            request.onerror = function(event) {
+                alert("Unable to delete data");
+            }
+        }
+        function manageBoostersListener() {
+            $(document).ready(function(){
+                $('#manageBoosters').on('click',function () {
+                    $('#boostersDiv').is(":hidden") ? $('#boostersDiv').show() : $('#boostersDiv').hide();
+                })
+            });
+        }
+        function addBoosterButtonListener(){
+            $(document).ready(function(){
+                $('#addBoosterBtn').on('click',function () {
+                   if($('#newBoosterInput').val()==""){
+                        alert('Booster name empty');
+                    }else {
+                       let name=$('#newBoosterInput').val();
+                       if(boosters.indexOf(name) > -1){ //check if boostername is unique
+                           alert('Booster name already exists');
+                           $('#newBoosterInput').val("");
+                       }else{
+                           insertBooster(name,function (res) {
+                               $('#boosterList').append('<li><div><button class="rmvBoosterBtn"><img class="rmvBI" src="remove2.png"></button><span class="name">'+res+'</span></div></li>');
+                               $('#newBoosterInput').val("");
+                               boosters.push(res);
+                               $('select').append(new Option(res,res));
+                           })
+                       }
+                    }
+                })
+            });
+        }
+        function insertBooster(name,callb){
+            let request =db.transaction(['boosters'],"readwrite")
+                .objectStore("boosters")
+                .add({booster:name});
+            request.onsuccess=function (event) {
+                callb(event.target.result);
+            };
+            request.onerror = function(event) {
+                alert("Unable to add data");
+            }
+        }
+        function fetchBoosters(callb) {
+              /*  con.query("SELECT * FROM boosters",function (err,res,fields) {
+                    if(err) throw err;
+                    callb(res)
+                });*/
+                var objectStore = db.transaction("boosters").objectStore("boosters");
+                objectStore.getAll().onsuccess = function(event) {
+                    //console.log(event.target);
+                    callb(event.target.result)
+                };
+        }
+        function populateLeftTable(boosters){
+             fetchServiceTypes(function (types) {
+               types.forEach(type=>{
+                   createRow(type,boosters,table);
+               })
+           })
+        }
+        function createRow(type,boosters,table){
+            let i=table.rows.length-1;
+            let row =table.insertRow(i);
+            $(row).attr('id',type['id']);
+            let editButton=document.createElement('button'); $(editButton).html('<img src="edit.png">').addClass('editButton');
+            let saveButton=document.createElement('button');$(saveButton).html('<img src="save.png">').addClass('saveButton').hide();
+            let cancelButton=document.createElement('button');$(cancelButton).html('<img src="cancel.png">').addClass('cancelButton').hide();
+            let removeButton=document.createElement('button');$(removeButton).html('<img src="remove.png">').addClass('removeButton');
+            let selectList=createSelect();addBoosterOptions(boosters,selectList);
+            let addButton=document.createElement('button'); $(addButton).html('<img src="add.png">').addClass('addButton');
+            addButtonListener(addButton);
+            let cells = [[removeButton,editButton,saveButton,cancelButton], type['id'], type['type'],type['percent'],type['price'],selectList,addButton];
+            cells.forEach((cell,index)=>{
+                let newCell=row.insertCell(index);
+                if(Array.isArray(cell)){
+                    cell.forEach(b=>newCell.appendChild(b));
+                }else{
+                    typeof cell === "number"||typeof cell==="string" ? newCell.appendChild(document.createTextNode(cell)) : newCell.appendChild(cell);
+                }
+            });
+        }
+        function updateServiceType(id,values,callb){
+            let request =db.transaction(['service_types'],"readwrite").objectStore("service_types")
+                .put({id:id,type:values[0],percent:values[1],price:values[2]});
+            request.onsuccess=function (event) {
+                if(!event.error) callb(event)
+            };
+            request.onerror = function(event) {alert("Unable to edit data")}
+        }
+        function saveButtonListener(){
+            $("#service_types tbody").on('click','.saveButton',function () {
+                editing=false;
+                editingValues=[];
+                let row=$(this).closest('tr');
+                $(row).children('td').slice(2,5).attr('contenteditable',false).css({'border-bottom':'1px solid whitesmoke','background-color':'white'});
+                $(row).children('td').slice(2,5).each((index,c)=>editingValues.push(c.innerHTML));
+                $(row).find('.editButton,.removeButton').show();
+                $(row).find('.saveButton,.cancelButton').hide();
+                let id=$(row).children('td')[1].innerHTML;
+                updateServiceType(id,editingValues,function () {
+                    $(row).children('td').slice(2,5).each((index,c)=>c.innerHTML=editingValues[index]);
+                    editingValues=[];
+                });
+            });
+        }
+        function cancelButtonListener(){
+            $("#service_types tbody").on('click','.cancelButton',function () {
+                editing=false;
+                let row=$(this).closest('tr');
+                $(row).children('td').slice(2,5).attr('contenteditable',false).css({'border-bottom':'1px solid whitesmoke','background-color':'white'});
+                $(row).children('td').slice(2,5).each((index,c)=>c.innerHTML=editingValues[index]);
+                $(row).find('.editButton,.removeButton').show();
+                $(row).find('.saveButton,.cancelButton').hide();
+            });
+        }
+        function fetchServiceTypes(callb){
+            /*mysql
+            con.query("SELECT * FROM service_types",function (err,res,fields) {
+                if(err) throw err;
+                console.log(res);
+                callb(res)
+            });*/
+            var objectStore = db.transaction("service_types").objectStore("service_types");
+            objectStore.getAll().onsuccess = function(event) {
+                callb(event.target.result);
+            };
+        }
+        function editButtonListener(){
+                    $("#service_types tbody").on('click','.editButton',function () {
+                        if(!editing){
+                            editing=true;
+                            editingValues=[];
+                            let row=$(this).closest('tr');
+                            $(row).children('td').slice(2,5).attr('contenteditable',true).css({'border-bottom':'1px solid orangeRed','background-color':'Seashell'});
+                            row.children('td').slice(2,5).each((index,c)=>editingValues.push(c.innerHTML));
+                            $(row).find('.editButton,.removeButton').hide();
+                            $(row).find('.saveButton,.cancelButton').show();
+                        }
+                    });
+        }
+        function createSelect(){
+            let selectList = document.createElement("select");
+            return selectList;
+        }
+        function sumButton(){
+            let rightTable=document.getElementById('services');
+            $('#sumButton').click(function () {
+                let sum=0;
+                for(let i=1;i<rightTable.rows.length;i++){
+                    if(window.getComputedStyle(rightTable.rows[i]).display!=="none")
+                        sum=sum+Number(rightTable.rows[i].cells[2].innerHTML);
+                }
+                let resultLabel=document.getElementById('result');
+                resultLabel.innerHTML=sum.toFixed(2);
+            });
+        }
+        function filterByBoosterListener() {
+            $(document).ready(function(){
+                $("#searchInput").on("keyup", function() {
+                    var value = $(this).val().toLowerCase();
+                    $("#services tr:not(:first-child)").filter(function() {
+                        $(this).toggle($(this.firstChild.nextSibling).text().toLowerCase().indexOf(value) > -1)
+                    });
+                });
+            });
+        }
+        function removeButtonListener(){
+            $("#services tbody").on('click','.btn',function () {
+                $(this).closest('tr').remove();
+            });
+        }
+        function removeServiceTypeButtonListener() {
+            $("#service_types tbody").on('click','.removeButton',function () {
+                if(confirm("Delete this service?")){
+                    let id=this.closest('tr').id;
+                    let row=this.closest('tr');
+                    deleteServiceType(id,function (res) {
+                        row.remove();
+                    })
+                }
+            });
+        }
+        function deleteServiceType(id,callb) {
+            let request =db.transaction(['service_types'],"readwrite")
+                .objectStore("service_types")
+                .delete(id);
+            request.onsuccess=function (event) {
+                callb( event.target);
+            };
+            request.onerror = function(event) {
+                alert("Unable to delete data");
+            }
+        }
+        function clearListener() {
+            $(document).ready(function(){
+                let label=document.getElementById('result');
+                $('#result').html("");
+                $('#clearButton').click(function(){
+                    $("#services").find("tr:gt(0)").remove();
+                    label.innerHTML="";
+                });
+            });
+        }
+        function addButtonListener(button){
+            button.addEventListener("click",function () {
+                let row=button.closest('tr');
+                let service_id=row.childNodes[1].innerHTML;
+                let boosterPercentage=row.childNodes[3].innerHTML;
+                let price=row.childNodes[4].innerHTML;
+                let select=row.childNodes[5].firstChild;
+                let booster=select.options[select.selectedIndex].value;
+                let booster_cut=price*boosterPercentage/100;
+                copyRow(service_id,booster,booster_cut);
+                select.options.selectedIndex=0;
+            });
+        }
+        function copyRow(service_id,booster,booster_cut){
+            let removeButton=createRemoveButton();
+            let newProps=[service_id,booster,booster_cut];
+            let servicesTable=document.querySelector('#services');
+            let newRow=servicesTable.insertRow(-1);
+            newProps.forEach((prop,index)=>{
+                let newCell = newRow.insertCell(index);
+                let newText = document.createTextNode(prop);
+                newCell.appendChild(newText);
+            });
+            let newCell = newRow.insertCell(newProps.length);
+            newCell.appendChild(removeButton);
+        }
+        function addBoosterOptions(boosters,selectList){
+            //Create and append the options
+            for (let i = 0; i < boosters.length; i++) {
+                let option = document.createElement("option");
+                option.value = boosters[i];
+                option.text = boosters[i];
+                selectList.appendChild(option);
+            }
+        }
+        function createRemoveButton(){
+            let removeButton=document.createElement('button');
+            $(removeButton).html('<img src="remove2.png">')
+            removeButton.setAttribute('class','btn');
+            return removeButton;
+        }
+        function filterByIdListener(){
+            $(document).ready(function(){
+                $("#searchIdInput").on("keyup", function() {
+                     let tv=$("#searchTypeInput").val().toLowerCase();
+                     let value = $(this).val().toLowerCase();
+                    $("#service_types tr:not(:first-child)").hide().filter(function() {
+                        if($(this.firstChild.nextSibling).text().toLowerCase().indexOf(value) > -1 && $(this.firstChild.nextSibling.nextSibling).text().toLowerCase().indexOf(tv) > -1) $(this).show();
+                    });
+                });
+            });
+        }
+        function filterByTypeListener(){
+            $(document).ready(function(){
+                $("#searchTypeInput").on("keyup", function() {
+                    let iv=$("#searchIdInput").val().toLowerCase();
+                    let value = $(this).val().toLowerCase();
+                    $("#service_types tr:not(:first-child)").hide().filter(function() {
+                        if($(this.firstChild.nextSibling.nextSibling).text().toLowerCase().indexOf(value) > -1 && $(this.firstChild.nextSibling).text().toLowerCase().indexOf(iv) > -1 ) $(this).show();
+                    });
+                });
+            });
+        }
+        function createNewTypeButtonListener() {
+            $(document).ready(function(){
+                $("#createButton").on("click",function () {
+                    let id =  $("#createId").val();
+                    let type=$("#createType").val();
+                    let percent=$("#createPercent").val();
+                    let price=$("#createPrice").val();
+                    if(id==""||type==""||percent==""||isNaN(percent)||price==""||isNaN(price)){
+                        alert('some fields are empty or have wrong values')
+                    }else{//check if id is unique
+                        let c=0;
+                        $("#service_types tr:not(:first-child)").each(function () {if($(this)[0].id==id) c++;});
+                        if(c!==0) alert('service_id must be unique');
+                        else {
+                             insertService(id,type,percent,price,function (result) {
+                                 createRow(result,boosters,table);
+                                 $('#service_types input').val("")
+                             });
+                        }
+                    }
+                })
+            });
+        }
+        function insertService(id,type,percent,price,callb){
+            let request =db.transaction(['service_types'],"readwrite")
+                .objectStore("service_types")
+                .add({id:id,type:type,percent:percent,price:price});
+            request.onsuccess=function (event) {
+                callb({id:id,type:type,percent:percent,price:price});
+            };
+            request.onerror = function(event) {
+                alert("Unable to add data");
+            }
+        }
+    </script>
+    </body>
+
+</html>
